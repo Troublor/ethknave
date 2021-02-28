@@ -4,7 +4,8 @@
   "main": "src/index.ts",
   "license": "MIT",
   "scripts": {
-    "start:rinkeby-maintenance": "ts-node src/rinkeby-maintenance.ts"
+    "start:rinkeby-maintenance": "ts-node src/rinkeby-maintenance.ts",
+    "start:eth-collect": "ts-node src/eth-collect.ts"
   },
   "devDependencies": {
     "@types/node": "^14.14.31",
