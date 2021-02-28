@@ -17,14 +17,68 @@ const maintainAccounts: Web3Core.Account[] = [];
 for (const privKey of config['maintainPrivateKeys']) {
     maintainAccounts.push(web3.eth.accounts.privateKeyToAccount(privKey));
 }
+const withdrawAccounts: Web3Core.Account[] = [];
+for (const privKey of config['withdrawPrivateKeys']) {
+    withdrawAccounts.push(web3.eth.accounts.privateKeyToAccount(privKey));
+}
 
-const monitor = new BalanceMonitor(web3, maintainAccounts.map(acc => acc.address));
+const monitor = new BalanceMonitor(web3, [
+    ...maintainAccounts.map(acc => acc.address),
+    ...withdrawAccounts.map(acc => acc.address),
+]);
 
 logger.info('Starting...');
 
 monitor.start().then(() => {
     logger.info('Balance monitor started');
 });
+
+// if currentBalance - gas * gasPrice > balance Line, then withdraw the ETH to faucet Account
+const withdraw = async (currentBalance: bigint, balanceLine: bigint, account: Web3Core.Account) => {
+    const gas = 21000;
+    const gasPrice = await web3.eth.getGasPrice();
+    const amount = currentBalance - BigInt(gas) * BigInt(gasPrice) - balanceLine;
+    if (amount <= 0) {
+        return;
+    }
+    const signedTx = await account.signTransaction({
+        from: account.address,
+        to: faucetAccount.address,
+        value: amount.toString(10),
+        gas: gas,
+        gasPrice: gasPrice,
+    });
+    if (!signedTx.rawTransaction) {
+        logger.error('Failed to sign transaction', {
+            from: account.address,
+            to: faucetAccount.address,
+            value: amount.toString(10),
+        });
+        return;
+    }
+    web3.eth.sendSignedTransaction(signedTx.rawTransaction)
+        .on('transactionHash', txHash => {
+            logger.info('Withdraw transaction submitted', {
+                from: account.address,
+                value: amount.toString(10),
+                txHash: txHash,
+            });
+        })
+        .on('receipt', receipt => {
+            logger.info('Withdraw transaction executed', {
+                from: account.address,
+                value: amount.toString(10),
+                txHash: receipt.transactionHash,
+            });
+        })
+        .on('error', err => {
+            logger.error('Withdraw transaction failed', {
+                from: account.address,
+                value: amount.toString(10),
+                error: err.message,
+            });
+        });
+};
 monitor.on('newBlock', async block => {
     logger.debug('New block', {
         number: block.number,
@@ -84,53 +138,7 @@ monitor.on('newBlock', async block => {
                 });
         } else if (balance > range[1]) {
             // transfer ETH out to faucet account
-            const gas = 21000;
-            const gasPrice = await web3.eth.getGasPrice();
-            const amount = balance - BigInt(gas) * BigInt(gasPrice) - range[1];
-            if (amount <= 0) {
-                return;
-            }
-            const account = maintainAccounts.find(acc => acc.address === address);
-            if (!account) {
-                return;
-            }
-            const signedTx = await account.signTransaction({
-                from: account.address,
-                to: faucetAccount.address,
-                value: amount.toString(10),
-                gas: gas,
-                gasPrice: gasPrice,
-            });
-            if (!signedTx.rawTransaction) {
-                logger.error('Failed to sign transaction', {
-                    from: account.address,
-                    to: faucetAccount.address,
-                    value: amount.toString(10),
-                });
-                return;
-            }
-            web3.eth.sendSignedTransaction(signedTx.rawTransaction)
-                .on('transactionHash', txHash => {
-                    logger.info('Withdraw transaction submitted', {
-                        from: address,
-                        value: amount.toString(10),
-                        txHash: txHash,
-                    });
-                })
-                .on('receipt', receipt => {
-                    logger.info('Withdraw transaction executed', {
-                        from: address,
-                        value: amount.toString(10),
-                        txHash: receipt.transactionHash,
-                    });
-                })
-                .on('error', err => {
-                    logger.error('Withdraw transaction failed', {
-                        from: address,
-                        value: amount.toString(10),
-                        error: err.message,
-                    });
-                });
+            await withdraw(balance, range[1], acc);
         }
     }
 });
@@ -140,6 +148,9 @@ monitor.on('balanceChange', async (address, balanceBefore, balanceAfter) => {
         before: balanceBefore.toString(10),
         after: balanceAfter.toString(10),
     });
+    const account = withdrawAccounts.find(acc => acc.address === address);
+    if (!account) return;
+    await withdraw(balanceAfter, BigInt(0), account);
 });
 
 const cleanup = () => {
