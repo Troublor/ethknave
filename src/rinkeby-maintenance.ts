@@ -8,7 +8,7 @@ import Web3Core from 'web3-core';
 
 const config = YAML.parse(fs.readFileSync(path.join(__dirname, '..', 'config.yml'), {encoding: 'utf-8'}))['rinkeby-maintenance'];
 
-const logger = new ContextLogger('eth-knave', Level.DEBUG);
+const logger = new ContextLogger('eth-knave', Level.INFO);
 
 const web3 = new Web3(config['endpoint']);
 
