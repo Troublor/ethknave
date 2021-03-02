@@ -162,7 +162,7 @@ monitor.on('balanceChange', async (address, balanceBefore, balanceAfter) => {
 });
 monitor.on('error', async (error: Error | undefined) => {
     while (error) {
-        logger.error(error.message);
+        logger.error(error.toString());
         logger.warn('error encountered, restarting in 5 seconds...');
         await sleep(5000);
         try {

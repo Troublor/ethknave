@@ -10,6 +10,13 @@ type BalanceMonitorEvents = {
     error: [Error];
 }
 
+declare class WsProvider {
+    reconnect(): void
+
+    on(ev: 'error', cb: (error: Error) => void): WsProvider;
+    on(ev: 'connect', cb: () => void): WsProvider
+}
+
 export class BalanceMonitor extends EventEmitter<BalanceMonitorEvents> implements Service {
     private subscription: Web3CoreSub.Subscription<Web3Eth.BlockHeader> | undefined;
 
@@ -37,11 +44,17 @@ export class BalanceMonitor extends EventEmitter<BalanceMonitorEvents> implement
                     this.emit('error', error);
                 });
             };
-            this.subscription ? this.shutdown().then(bootstrap).catch(err => {
-                reject(err);
-            }) : bootstrap();
+            const provider: WsProvider = this.web3.currentProvider as unknown as WsProvider;
+            provider.reconnect();
+            provider.on('connect', () => {
+                this.subscription ? this.shutdown().then(bootstrap).catch(err => {
+                    reject(err);
+                }) : bootstrap();
+            });
+            provider.on('error', e => {
+                this.emit('error', e);
+            });
         });
-
     }
 
     shutdown(): Promise<void> {
