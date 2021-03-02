@@ -32,6 +32,8 @@ logger.info('Starting...');
 
 monitor.start().then(() => {
     logger.info('Balance monitor started');
+}).catch(e => {
+    monitor.emit('error', e);
 });
 
 // if currentBalance - gas * gasPrice > balance Line, then withdraw the ETH to faucet Account
@@ -169,7 +171,7 @@ monitor.on('error', async (error: Error | undefined) => {
             await monitor.start();
             logger.info('Balance monitor started');
             error = undefined;
-        } catch (e){
+        } catch (e) {
             error = e;
         }
     }

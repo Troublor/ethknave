@@ -11,7 +11,9 @@ type BalanceMonitorEvents = {
 }
 
 declare class WsProvider {
+    connect(): void
     reconnect(): void
+    connected: boolean
 
     on(ev: 'error', cb: (error: Error) => void): WsProvider;
     on(ev: 'connect', cb: () => void): WsProvider
@@ -45,7 +47,11 @@ export class BalanceMonitor extends EventEmitter<BalanceMonitorEvents> implement
                 });
             };
             const provider: WsProvider = this.web3.currentProvider as unknown as WsProvider;
-            provider.reconnect();
+            if (provider.connected) {
+                provider.reconnect();
+            }else {
+                provider.connect();
+            }
             provider.on('connect', () => {
                 this.subscription ? this.shutdown().then(bootstrap).catch(err => {
                     reject(err);
