@@ -54,6 +54,9 @@ export class BalanceMonitor extends EventEmitter<BalanceMonitorEvents> implement
             provider.on('error', e => {
                 this.emit('error', e);
             });
+            this.subscription ? this.shutdown().then(bootstrap).catch(err => {
+                reject(err);
+            }) : bootstrap();
         });
     }
 
