@@ -84,62 +84,65 @@ monitor.on('newBlock', async block => {
         number: block.number,
         hash: block.hash,
     });
+    try {
+        for (const acc of maintainAccounts) {
+            const address = acc.address;
+            const balance = BigInt(await web3.eth.getBalance(address));
 
-    for (const acc of maintainAccounts) {
-        const address = acc.address;
-        const balance = BigInt(await web3.eth.getBalance(address));
+            const range = [
+                BigInt(config['balanceRange']['lower']),
+                BigInt(config['balanceRange']['higher']),
+            ];
 
-        const range = [
-            BigInt(config['balanceRange']['lower']),
-            BigInt(config['balanceRange']['higher']),
-        ];
-
-        if (balance < range[0]) {
-            // should open faucet
-            const amount = range[1] - balance;
-            const gas = 21000;
-            const gasPrice = await web3.eth.getGasPrice();
-            const signedTx = await faucetAccount.signTransaction({
-                from: faucetAccount.address,
-                to: address,
-                value: amount.toString(10),
-                gas: gas,
-                gasPrice: gasPrice,
-            });
-            if (!signedTx.rawTransaction) {
-                logger.error('Failed to sign transaction', {
+            if (balance < range[0]) {
+                // should open faucet
+                const amount = range[1] - balance;
+                const gas = 21000;
+                const gasPrice = await web3.eth.getGasPrice();
+                const signedTx = await faucetAccount.signTransaction({
                     from: faucetAccount.address,
                     to: address,
                     value: amount.toString(10),
+                    gas: gas,
+                    gasPrice: gasPrice,
                 });
-                return;
+                if (!signedTx.rawTransaction) {
+                    logger.error('Failed to sign transaction', {
+                        from: faucetAccount.address,
+                        to: address,
+                        value: amount.toString(10),
+                    });
+                    return;
+                }
+                web3.eth.sendSignedTransaction(signedTx.rawTransaction)
+                    .on('transactionHash', txHash => {
+                        logger.info('Faucet transaction submitted', {
+                            to: address,
+                            value: amount.toString(10),
+                            txHash: txHash,
+                        });
+                    })
+                    .on('receipt', receipt => {
+                        logger.info('Faucet transaction executed', {
+                            to: address,
+                            value: amount.toString(10),
+                            txHash: receipt.transactionHash,
+                        });
+                    })
+                    .on('error', err => {
+                        logger.error('Faucet transaction failed', {
+                            to: address,
+                            value: amount.toString(10),
+                            error: err.message,
+                        });
+                    });
+            } else if (balance > range[1]) {
+                // transfer ETH out to faucet account
+                await withdraw(balance, range[1], acc);
             }
-            web3.eth.sendSignedTransaction(signedTx.rawTransaction)
-                .on('transactionHash', txHash => {
-                    logger.info('Faucet transaction submitted', {
-                        to: address,
-                        value: amount.toString(10),
-                        txHash: txHash,
-                    });
-                })
-                .on('receipt', receipt => {
-                    logger.info('Faucet transaction executed', {
-                        to: address,
-                        value: amount.toString(10),
-                        txHash: receipt.transactionHash,
-                    });
-                })
-                .on('error', err => {
-                    logger.error('Faucet transaction failed', {
-                        to: address,
-                        value: amount.toString(10),
-                        error: err.message,
-                    });
-                });
-        } else if (balance > range[1]) {
-            // transfer ETH out to faucet account
-            await withdraw(balance, range[1], acc);
         }
+    } catch (e) {
+        monitor.emit('error', e);
     }
 });
 monitor.on('balanceChange', async (address, balanceBefore, balanceAfter) => {
@@ -148,9 +151,23 @@ monitor.on('balanceChange', async (address, balanceBefore, balanceAfter) => {
         before: balanceBefore.toString(10),
         after: balanceAfter.toString(10),
     });
-    const account = withdrawAccounts.find(acc => acc.address === address);
-    if (!account) return;
-    await withdraw(balanceAfter, BigInt(0), account);
+    try {
+        const account = withdrawAccounts.find(acc => acc.address === address);
+        if (!account) return;
+        await withdraw(balanceAfter, BigInt(0), account);
+    } catch (e) {
+        monitor.emit('error', e);
+    }
+});
+monitor.on('error', (error: Error | undefined) => {
+    while (error) {
+        logger.error(error.message);
+        logger.warn('error encountered, restarting in 5 seconds...');
+        monitor.start().then(() => {
+            logger.info('Balance monitor started');
+            error = undefined;
+        }).catch(err => error = err);
+    }
 });
 
 const cleanup = () => {

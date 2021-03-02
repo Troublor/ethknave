@@ -29,10 +29,12 @@ export class BalanceMonitor extends EventEmitter<BalanceMonitorEvents> implement
                 });
                 this.subscription.on('data', (blockHeader) => {
                     this.emit('newBlock', blockHeader);
-                    this.checkBlock(blockHeader);
+                    this.checkBlock(blockHeader).catch(err => {
+                        this.emit('error', err);
+                    });
                 });
                 this.subscription.on('error', error => {
-                    reject(error);
+                    this.emit('error', error);
                 });
             };
             this.subscription ? this.shutdown().then(bootstrap).catch(err => {
