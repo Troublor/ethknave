@@ -19,6 +19,7 @@
     "@troubkit/log": "^0.3.0-alpha.0",
     "@troubkit/tools": "^0.4.0-alpha.0",
     "web3": "^1.3.4",
+    "web3-providers-ws": "^1.3.4",
     "yaml": "^1.10.0"
   }
 }

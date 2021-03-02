@@ -5,13 +5,29 @@ import YAML from 'yaml';
 import * as fs from 'fs';
 import path from 'path';
 import Web3Core from 'web3-core';
-import {sleep} from '@troubkit/tools';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const Web3WsProvider = require('web3-providers-ws');
 
 const config = YAML.parse(fs.readFileSync(path.join(__dirname, '..', 'config.yml'), {encoding: 'utf-8'}))['rinkeby-maintenance'];
 
-const logger = new ContextLogger('eth-knave', Level.INFO);
+const logger = new ContextLogger('eth-knave', Level.DEBUG);
 
-const web3 = new Web3(config['endpoint']);
+const web3 = new Web3(new Web3WsProvider(config['endpoint']), {
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    clientConfig: {
+        // Useful to keep a connection alive
+        keepalive: true,
+        keepaliveInterval: 60000, // ms
+    },
+    // Enable auto reconnection
+    reconnect: {
+        auto: true,
+        delay: 5000, // ms
+        maxAttempts: 5,
+        onTimeout: false,
+    },
+});
 
 const faucetAccount: Web3Core.Account = web3.eth.accounts.privateKeyToAccount(config['faucetAccountPrivateKey']);
 const maintainAccounts: Web3Core.Account[] = [];
@@ -32,14 +48,11 @@ logger.info('Starting...');
 
 monitor.start().then(() => {
     logger.info('Balance monitor started');
-}).catch(e => {
-    monitor.emit('error', e);
 });
-
 // if currentBalance - gas * gasPrice > balance Line, then withdraw the ETH to faucet Account
 const withdraw = async (currentBalance: bigint, balanceLine: bigint, account: Web3Core.Account) => {
     const gas = 21000;
-    const gasPrice = await web3.eth.getGasPrice();
+    const gasPrice = await monitor.web3.eth.getGasPrice();
     const amount = currentBalance - BigInt(gas) * BigInt(gasPrice) - balanceLine;
     if (amount <= 0) {
         return;
@@ -59,7 +72,7 @@ const withdraw = async (currentBalance: bigint, balanceLine: bigint, account: We
         });
         return;
     }
-    web3.eth.sendSignedTransaction(signedTx.rawTransaction)
+    monitor.web3.eth.sendSignedTransaction(signedTx.rawTransaction)
         .on('transactionHash', txHash => {
             logger.info('Withdraw transaction submitted', {
                 from: account.address,
@@ -90,7 +103,7 @@ monitor.on('newBlock', async block => {
     try {
         for (const acc of maintainAccounts) {
             const address = acc.address;
-            const balance = BigInt(await web3.eth.getBalance(address));
+            const balance = BigInt(await monitor.web3.eth.getBalance(address));
 
             const range = [
                 BigInt(config['balanceRange']['lower']),
@@ -101,7 +114,7 @@ monitor.on('newBlock', async block => {
                 // should open faucet
                 const amount = range[1] - balance;
                 const gas = 21000;
-                const gasPrice = await web3.eth.getGasPrice();
+                const gasPrice = await monitor.web3.eth.getGasPrice();
                 const signedTx = await faucetAccount.signTransaction({
                     from: faucetAccount.address,
                     to: address,
@@ -117,7 +130,7 @@ monitor.on('newBlock', async block => {
                     });
                     return;
                 }
-                web3.eth.sendSignedTransaction(signedTx.rawTransaction)
+                monitor.web3.eth.sendSignedTransaction(signedTx.rawTransaction)
                     .on('transactionHash', txHash => {
                         logger.info('Faucet transaction submitted', {
                             to: address,
@@ -162,19 +175,8 @@ monitor.on('balanceChange', async (address, balanceBefore, balanceAfter) => {
         monitor.emit('error', e);
     }
 });
-monitor.on('error', async (error: Error | undefined) => {
-    while (error) {
-        logger.error(error.toString());
-        logger.warn('error encountered, restarting in 5 seconds...');
-        await sleep(5000);
-        try {
-            await monitor.start();
-            logger.info('Balance monitor started');
-            error = undefined;
-        } catch (e) {
-            error = e;
-        }
-    }
+monitor.on('error', async (error: Error) => {
+    logger.error(error.toString());
 });
 
 const cleanup = () => {
