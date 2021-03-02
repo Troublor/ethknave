@@ -5,6 +5,7 @@ import YAML from 'yaml';
 import * as fs from 'fs';
 import path from 'path';
 import Web3Core from 'web3-core';
+import {sleep} from '@troubkit/tools';
 
 const config = YAML.parse(fs.readFileSync(path.join(__dirname, '..', 'config.yml'), {encoding: 'utf-8'}))['rinkeby-maintenance'];
 
@@ -159,14 +160,18 @@ monitor.on('balanceChange', async (address, balanceBefore, balanceAfter) => {
         monitor.emit('error', e);
     }
 });
-monitor.on('error', (error: Error | undefined) => {
+monitor.on('error', async (error: Error | undefined) => {
     while (error) {
         logger.error(error.message);
         logger.warn('error encountered, restarting in 5 seconds...');
-        monitor.start().then(() => {
+        await sleep(5000);
+        try {
+            await monitor.start();
             logger.info('Balance monitor started');
             error = undefined;
-        }).catch(err => error = err);
+        } catch (e){
+            error = e;
+        }
     }
 });
 
