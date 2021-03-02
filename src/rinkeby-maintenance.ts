@@ -10,7 +10,7 @@ const Web3WsProvider = require('web3-providers-ws');
 
 const config = YAML.parse(fs.readFileSync(path.join(__dirname, '..', 'config.yml'), {encoding: 'utf-8'}))['rinkeby-maintenance'];
 
-const logger = new ContextLogger('eth-knave', Level.DEBUG);
+const logger = new ContextLogger('eth-knave', Level.INFO);
 
 const web3 = new Web3(new Web3WsProvider(config['endpoint']), {
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
